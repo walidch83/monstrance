@@ -506,8 +506,11 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("stop-demo").addEventListener("click", stopAllPlayback);
   document.getElementById("replay-phrase").addEventListener("click", restartCurrentPhrase);
   document.getElementById("forgiving-velocity").addEventListener("change", (e)=>{ state.forgivingVelocity = e.target.checked; });
-  document.getElementById("playback-speed").addEventListener("change", (e)=>{
-    state.playbackSpeed = parseFloat(e.target.value);
+  document.querySelectorAll(".speed-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      state.playbackSpeed = parseFloat(btn.dataset.speed);
+      document.querySelectorAll(".speed-btn").forEach(b=> b.classList.toggle("active", b===btn));
+    });
   });
   document.getElementById("reset-progress").addEventListener("click", ()=>{
     localStorage.removeItem(STORAGE_KEY);
