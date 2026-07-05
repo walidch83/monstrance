@@ -184,6 +184,10 @@ function buildKeyboard(){
   let whiteIndex = 0;
   const whiteKeyEls = {};
 
+  // White keys are plain flex children with NO inline "left" offset —
+  // the flex container already places them sequentially at the correct
+  // position. Adding "left" on top of flex flow was the bug that made
+  // notes appear octaves apart: it compounded an extra offset per key.
   for (let m = KEYBOARD_START; m <= KEYBOARD_END; m++){
     const pitchClass = m % 12;
     if (!BLACK_OFFSETS.includes(pitchClass)){
@@ -191,7 +195,6 @@ function buildKeyboard(){
       el.className = "white-key";
       el.dataset.note = m;
       el.textContent = midiToName(m).replace(/[0-9-]/g,"");
-      el.style.left = (whiteIndex*30) + "px";
       kb.appendChild(el);
       whiteKeyEls[m] = { el, whiteIndex };
       whiteIndex++;
@@ -199,6 +202,10 @@ function buildKeyboard(){
   }
   kb.style.width = (whiteIndex*30) + "px";
 
+  // Black keys are the ONLY keys that need absolute positioning, since
+  // they sit between two white keys rather than occupying their own
+  // flex slot. Their offset is computed from the preceding white key's
+  // real index, not from any inline-left value on that white key.
   for (let m = KEYBOARD_START; m <= KEYBOARD_END; m++){
     const pitchClass = m % 12;
     if (BLACK_OFFSETS.includes(pitchClass)){

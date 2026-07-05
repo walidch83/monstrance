@@ -216,13 +216,13 @@ header h1{
   padding:20px 12px;position:relative;z-index:2;
 }
 #keyboard{
-  position:relative;
+  position:relative; /* anchor point for absolutely-positioned black keys */
   display:flex;
   height:170px;
   flex-shrink:0;
 }
 .white-key{
-  position:relative;
+  position:relative; /* needed only as stacking context for key-state overlays, NOT for left offsets */
   flex-shrink:0;
   flex-grow:0;
   width:30px;min-width:30px;max-width:30px;
