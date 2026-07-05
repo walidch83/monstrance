@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Monstrance Clock — MIDI Ritual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="grain-overlay"></div>
+
+<header>
+  <div class="sigil">☩</div>
+  <h1>Monstrance Clock</h1>
+  <p class="subtitle">a ritual for the hands · no theory, only sound</p>
+</header>
+
+<section id="midi-status">
+  <span id="midi-indicator">🕯 awaiting communion with your keyboard...</span>
+  <select id="midi-input-select"></select>
+</section>
+
+<section id="controls">
+  <div class="hand-tabs">
+    <button class="hand-tab active" data-hand="right">Right Hand</button>
+    <button class="hand-tab" data-hand="left">Left Hand</button>
+    <button class="hand-tab" data-hand="both">Both Hands</button>
+  </div>
+  <div class="mode-toggle">
+    <label>
+      <input type="checkbox" id="forgiving-velocity" checked>
+      just messing around (ignore touch)
+    </label>
+  </div>
+</section>
+
+<section id="phrase-nav">
+  <button id="prev-phrase">◀</button>
+  <span id="phrase-label">Phrase 1 / 1</span>
+  <button id="next-phrase">▶</button>
+  <button id="replay-phrase">↺ restart phrase</button>
+</section>
+
+<section id="feedback-banner"></section>
+
+<section id="keyboard-wrapper">
+  <div id="keyboard"></div>
+</section>
+
+<section id="progress-panel">
+  <h2>your rite so far</h2>
+  <div id="progress-list"></div>
+  <button id="reset-progress">reset all progress</button>
+</section>
+
+<footer>
+  <p>Monstrance Clock — Ghost · practice tool, not for sale · built for fun</p>
+</footer>
+
+<script src="song-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
