@@ -13,6 +13,12 @@ const state = {
   midiInput: null,
   isPlayingDemo: false,
   playbackSpeed: 1.0,
+  // Tracks the currently-playing phrase so speed changes mid-playback can
+  // recompute and reschedule the remaining notes instantly, instead of
+  // only affecting the *next* time you press play.
+  currentPlaybackSeq: null,
+  currentPlaybackStartCtxTime: null,
+  currentPlaybackOnDone: null,
 };
 
 // ---------------------------------------------------------------
@@ -61,6 +67,8 @@ function stopAllPlayback(){
   activeTimeouts = [];
 
   state.isPlayingDemo = false;
+  state.currentPlaybackSeq = null;
+  state.currentPlaybackAnchorCtxTime = null;
   clearKeyStates();
   updatePlaybackButtons();
 }
@@ -134,10 +142,21 @@ function playNote(midiNote, startTime, duration, velocity = 0.85, polyphonyScale
 // Plays an entire phrase's sequence (right, left, or merged), scheduled
 // using the note "t" offsets from the MIDI file, stretched by the current
 // playback speed (e.g. speed=0.25 plays 4x slower).
+// Plays a phrase from the very start. Internally delegates to
+// startPlaybackSession so speed changes mid-playback share the same logic.
 function playPhraseAudio(seq, onDone){
+  startPlaybackSession(seq, 0, onDone);
+}
+
+// Starts (or resumes) playback of `seq`, beginning at musical position
+// `fromPosition` (in the same "t" seconds used in song-data.js, i.e. at
+// the song's original 100% tempo). This is the core scheduling routine —
+// used both for a fresh "Play this phrase" click AND for resuming
+// mid-phrase after a live speed change, so switching from 50% to 75%
+// instantly reschedules only the NOTES THAT HAVEN'T PLAYED YET, at the
+// new speed, without restarting the phrase from the beginning.
+function startPlaybackSession(seq, fromPosition, onDone){
   stopAllPlayback(); // ensure only ONE engine ever runs at a time
-  const myToken = playbackToken; // (was incremented inside stopAllPlayback, but
-                                   // we want THIS session's token, so re-read it)
   const token = playbackToken;
 
   const ctx = ensureAudioCtx();
@@ -145,8 +164,19 @@ function playPhraseAudio(seq, onDone){
   const now = ctx.currentTime + 0.05;
   let maxEnd = 0;
 
-  seq.forEach(step=>{
-    const scaledT = step.t / speed;
+  // Remember exactly where we are in "musical time" and at what real-world
+  // clock time + speed that position was anchored, so a future speed
+  // change can compute the correct current position before rescheduling.
+  state.currentPlaybackSeq = seq;
+  state.currentPlaybackOnDone = onDone;
+  state.currentPlaybackAnchorPosition = fromPosition;
+  state.currentPlaybackAnchorCtxTime = now;
+  state.playbackSpeedAtAnchor = speed;
+
+  const remainingSteps = seq.filter(step => step.t >= fromPosition - 1e-6);
+
+  remainingSteps.forEach(step=>{
+    const scaledT = (step.t - fromPosition) / speed;
     const scaledDur = Math.max(step.dur / speed, 0.05);
     // More simultaneous notes in this step (e.g. both-hands chords) means
     // each individual note is scaled down so the combined loudness stays
@@ -182,10 +212,39 @@ function playPhraseAudio(seq, onDone){
   const doneId = setTimeout(()=>{
     if (token !== playbackToken) return; // a newer playback superseded this one
     state.isPlayingDemo = false;
+    state.currentPlaybackSeq = null;
+    state.currentPlaybackAnchorCtxTime = null;
     updatePlaybackButtons();
     if (onDone) onDone();
   }, (maxEnd + 0.3) * 1000);
   activeTimeouts.push(doneId);
+}
+
+// Computes how far into the phrase (in original "t" seconds) playback
+// currently is, based on when the last speed-anchor was set and how much
+// real wall-clock time has elapsed since, scaled by the speed that was
+// active during that interval.
+function getElapsedMusicalPosition(){
+  if (!state.isPlayingDemo || state.currentPlaybackAnchorCtxTime == null) return 0;
+  const ctx = ensureAudioCtx();
+  const wallElapsed = Math.max(ctx.currentTime - state.currentPlaybackAnchorCtxTime, 0);
+  return state.currentPlaybackAnchorPosition + wallElapsed * state.playbackSpeedAtAnchor;
+}
+
+// Called when the user picks a new speed while a phrase is actively
+// playing. Freezes the current musical position under the OLD speed,
+// then reschedules everything from that exact point forward at the NEW
+// speed — so switching 50% -> 75% mid-phrase speeds up immediately
+// instead of only affecting the next "Play" click.
+function changePlaybackSpeed(newSpeed){
+  const wasPlaying = state.isPlayingDemo && state.currentPlaybackSeq;
+  const pos = wasPlaying ? getElapsedMusicalPosition() : 0;
+  state.playbackSpeed = newSpeed;
+  if (wasPlaying){
+    const seq = state.currentPlaybackSeq;
+    const onDone = state.currentPlaybackOnDone;
+    startPlaybackSession(seq, pos, onDone);
+  }
 }
 
 function updatePlaybackButtons(){
@@ -398,6 +457,14 @@ function renderProgressPanel(){
   const data = loadProgress();
   const list = document.getElementById("progress-list");
   list.innerHTML = "";
+
+  const totalSlots = SONG.phrases.length * 3; // right + left + both
+  const doneSlots = Object.values(data).filter(Boolean).length;
+  const pct = totalSlots ? Math.round((doneSlots/totalSlots)*100) : 0;
+  const fill = document.getElementById("overall-progress-fill");
+  const text = document.getElementById("overall-progress-text");
+  if (fill) fill.style.width = pct + "%";
+  if (text) text.textContent = doneSlots + " of " + totalSlots + " phrase-hands mastered (" + pct + "%)";
   ["right","left","both"].forEach(hand=>{
     SONG.phrases.forEach(p=>{
       const key = hand + ":" + p.id;
@@ -508,7 +575,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("forgiving-velocity").addEventListener("change", (e)=>{ state.forgivingVelocity = e.target.checked; });
   document.querySelectorAll(".speed-btn").forEach(btn=>{
     btn.addEventListener("click", ()=>{
-      state.playbackSpeed = parseFloat(btn.dataset.speed);
+      changePlaybackSpeed(parseFloat(btn.dataset.speed));
       document.querySelectorAll(".speed-btn").forEach(b=> b.classList.toggle("active", b===btn));
     });
   });
