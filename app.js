@@ -65,17 +65,50 @@ function stopAllPlayback(){
   updatePlaybackButtons();
 }
 
-// Plays a single note with a piano-like envelope: quick attack,
-// exponential decay, layered harmonics for a fuller tone.
-function playNote(midiNote, startTime, duration, velocity = 0.85){
+// ---------------------------------------------------------------
+// Master bus with a limiter/compressor, so stacking many simultaneous
+// notes (e.g. "Both Hands" mode with full chords in each hand) never
+// clips or distorts the output — this was the source of the audio
+// overload/clipping reported when playing dense both-hand passages.
+// ---------------------------------------------------------------
+let masterBus = null;
+function ensureMasterBus(){
   const ctx = ensureAudioCtx();
+  if (!masterBus){
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 24;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 0.9;
+
+    compressor.connect(masterGain);
+    masterGain.connect(ctx.destination);
+    masterBus = { compressor, masterGain };
+  }
+  return masterBus;
+}
+
+// Plays a single note with a piano-like envelope: quick attack,
+// exponential decay, layered harmonics for a fuller tone. Routes
+// through the shared master bus (compressor) instead of straight to
+// destination, and scales per-note gain down as more notes stack up
+// simultaneously, so chords in "Both Hands" mode never clip.
+function playNote(midiNote, startTime, duration, velocity = 0.85, polyphonyScale = 1){
+  const ctx = ensureAudioCtx();
+  const bus = ensureMasterBus();
   const freq = midiToFreq(midiNote);
   const t0 = startTime;
+  const safeVelocity = velocity * polyphonyScale;
+
   const gainMain = ctx.createGain();
   gainMain.gain.setValueAtTime(0, t0);
-  gainMain.gain.linearRampToValueAtTime(velocity * 0.5, t0 + 0.008);
+  gainMain.gain.linearRampToValueAtTime(safeVelocity * 0.5, t0 + 0.008);
   gainMain.gain.exponentialRampToValueAtTime(0.0008, t0 + duration + 1.1);
-  gainMain.connect(ctx.destination);
+  gainMain.connect(bus.compressor);
 
   const harmonics = [
     { ratio: 1,   gain: 1.0,  type: "triangle" },
@@ -115,8 +148,12 @@ function playPhraseAudio(seq, onDone){
   seq.forEach(step=>{
     const scaledT = step.t / speed;
     const scaledDur = Math.max(step.dur / speed, 0.05);
+    // More simultaneous notes in this step (e.g. both-hands chords) means
+    // each individual note is scaled down so the combined loudness stays
+    // consistent and never overloads the output.
+    const polyphonyScale = 1 / Math.sqrt(Math.max(step.notes.length, 1));
     step.notes.forEach(n=>{
-      playNote(n, now + scaledT, scaledDur);
+      playNote(n, now + scaledT, scaledDur, 0.85, polyphonyScale);
     });
     maxEnd = Math.max(maxEnd, scaledT + scaledDur);
 
