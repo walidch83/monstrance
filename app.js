@@ -1,7 +1,9 @@
 // app.js
-// Core app logic: keyboard rendering, Web MIDI input, phrase practice loop, progress persistence.
+// Monstrance Clock — MIDI Practice Ritual
+// Core logic: Web Audio piano engine, phrase playback, keyboard rendering,
+// Web MIDI input, note matching, progress persistence.
 
-const STORAGE_KEY = "monstrance_progress_v1";
+const STORAGE_KEY = "monstrance_progress_v2";
 
 const state = {
   hand: "right",
@@ -9,11 +11,80 @@ const state = {
   forgivingVelocity: true,
   activeNotesPlayed: new Set(),
   midiInput: null,
+  isPlayingDemo: false,
 };
 
+// ---------------------------------------------------------------
+// Web Audio piano engine (simple additive/FM synth piano voice —
+// no external samples needed, works offline, decent piano-ish tone)
+// ---------------------------------------------------------------
+let audioCtx = null;
+function ensureAudioCtx(){
+  if (!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function midiToFreq(m){
+  return 440 * Math.pow(2, (m - 69) / 12);
+}
+
+// Plays a single note with a piano-like envelope: quick attack,
+// exponential decay, layered harmonics for a fuller tone.
+function playNote(midiNote, startTime, duration, velocity = 0.85){
+  const ctx = ensureAudioCtx();
+  const freq = midiToFreq(midiNote);
+  const t0 = startTime;
+  const gainMain = ctx.createGain();
+  gainMain.gain.setValueAtTime(0, t0);
+  gainMain.gain.linearRampToValueAtTime(velocity * 0.5, t0 + 0.008);
+  gainMain.gain.exponentialRampToValueAtTime(0.0008, t0 + duration + 1.1);
+  gainMain.connect(ctx.destination);
+
+  const harmonics = [
+    { ratio: 1,   gain: 1.0,  type: "triangle" },
+    { ratio: 2,   gain: 0.35, type: "sine" },
+    { ratio: 3,   gain: 0.12, type: "sine" },
+    { ratio: 4,   gain: 0.06, type: "sine" }
+  ];
+
+  harmonics.forEach(h=>{
+    const osc = ctx.createOscillator();
+    osc.type = h.type;
+    osc.frequency.setValueAtTime(freq * h.ratio, t0);
+    const hGain = ctx.createGain();
+    hGain.gain.value = h.gain;
+    osc.connect(hGain);
+    hGain.connect(gainMain);
+    osc.start(t0);
+    osc.stop(t0 + duration + 1.2);
+  });
+}
+
+// Plays an entire phrase's sequence (right, left, or merged) in real time,
+// scheduled using the note "t" offsets already extracted from the MIDI file.
+function playPhraseAudio(seq, onDone){
+  const ctx = ensureAudioCtx();
+  const now = ctx.currentTime + 0.05;
+  let maxEnd = 0;
+  seq.forEach(step=>{
+    step.notes.forEach(n=>{
+      playNote(n, now + step.t, step.dur);
+    });
+    maxEnd = Math.max(maxEnd, step.t + step.dur);
+  });
+  state.isPlayingDemo = true;
+  setTimeout(()=>{
+    state.isPlayingDemo = false;
+    if (onDone) onDone();
+  }, (maxEnd + 0.3) * 1000);
+}
+
 // ---------- Keyboard rendering ----------
-const KEYBOARD_START = 48; // C3
-const KEYBOARD_END = 89;   // F6 approx, covers song range with margin
+const KEYBOARD_START = 24; // C1, covers full song range with margin
+const KEYBOARD_END = 96;   // C7
 const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const BLACK_OFFSETS = [1,3,6,8,10];
 
@@ -36,13 +107,13 @@ function buildKeyboard(){
       el.className = "white-key";
       el.dataset.note = m;
       el.textContent = midiToName(m).replace(/[0-9-]/g,"");
-      el.style.left = (whiteIndex*42) + "px";
+      el.style.left = (whiteIndex*30) + "px";
       kb.appendChild(el);
       whiteKeyEls[m] = { el, whiteIndex };
       whiteIndex++;
     }
   }
-  kb.style.width = (whiteIndex*42) + "px";
+  kb.style.width = (whiteIndex*30) + "px";
 
   for (let m = KEYBOARD_START; m <= KEYBOARD_END; m++){
     const pitchClass = m % 12;
@@ -52,7 +123,7 @@ function buildKeyboard(){
       const el = document.createElement("div");
       el.className = "black-key";
       el.dataset.note = m;
-      el.style.left = (prevWhite.whiteIndex*42 + 30) + "px";
+      el.style.left = (prevWhite.whiteIndex*30 + 20) + "px";
       kb.appendChild(el);
     }
   }
@@ -64,7 +135,7 @@ function getKeyEl(note){
 
 function clearKeyStates(){
   document.querySelectorAll(".white-key, .black-key").forEach(el=>{
-    el.classList.remove("key-target","key-correct","key-wrong","key-dim");
+    el.classList.remove("key-target","key-correct","key-wrong","key-dim","key-demo");
   });
 }
 
@@ -76,15 +147,20 @@ function currentPhrase(){
 function currentHandSequence(){
   const phrase = currentPhrase();
   if (state.hand === "both"){
-    // merge right+left by index for simplicity
-    const len = Math.max(phrase.right.length, phrase.left.length);
-    const merged = [];
-    for (let i=0;i<len;i++){
-      const r = phrase.right[i] ? phrase.right[i].notes : [];
-      const l = phrase.left[i] ? phrase.left[i].notes : [];
-      merged.push({ notes: [...r, ...l] });
-    }
-    return merged;
+    const merged = [...phrase.right, ...phrase.left]
+      .slice()
+      .sort((a,b)=> a.t - b.t);
+    // group near-simultaneous notes (within 40ms) into single steps
+    const grouped = [];
+    merged.forEach(step=>{
+      const last = grouped[grouped.length-1];
+      if (last && Math.abs(last.t - step.t) < 0.04){
+        last.notes = [...new Set([...last.notes, ...step.notes])];
+      } else {
+        grouped.push({ t: step.t, dur: step.dur, notes: [...step.notes] });
+      }
+    });
+    return grouped;
   }
   return phrase[state.hand];
 }
@@ -131,6 +207,7 @@ function advanceStep(){
 }
 
 function checkPlayedNotes(){
+  if (state.isPlayingDemo) return;
   const seq = currentHandSequence();
   if (!seq || !seq.length) return;
   const target = new Set(seq[stepIndex].notes);
@@ -145,6 +222,36 @@ function checkPlayedNotes(){
   } else if (allCorrect){
     advanceStep();
   }
+}
+
+// ---------- Demo playback ----------
+function playCurrentPhraseDemo(){
+  const seq = currentHandSequence();
+  if (!seq || !seq.length) return;
+  clearKeyStates();
+  showFeedback("Listen closely...", "good");
+
+  seq.forEach(step=>{
+    setTimeout(()=>{
+      step.notes.forEach(n=>{
+        const el = getKeyEl(n);
+        if (el) el.classList.add("key-demo");
+      });
+      setTimeout(()=>{
+        step.notes.forEach(n=>{
+          const el = getKeyEl(n);
+          if (el) el.classList.remove("key-demo");
+        });
+      }, step.dur * 1000 + 60);
+    }, step.t * 1000 + 50);
+  });
+
+  playPhraseAudio(seq, ()=>{
+    showFeedback("Your turn — play it back", "good");
+    stepIndex = 0;
+    state.activeNotesPlayed.clear();
+    highlightCurrentStep();
+  });
 }
 
 // ---------- Progress persistence ----------
@@ -172,7 +279,12 @@ function renderProgressPanel(){
       const key = hand + ":" + p.id;
       const chip = document.createElement("span");
       chip.className = "progress-chip" + (data[key] ? " done" : "");
-      chip.textContent = hand + " · " + p.label + (data[key] ? " ✓" : "");
+      chip.textContent = hand + " · " + p.label.split(" (")[0] + (data[key] ? " ✓" : "");
+      chip.addEventListener("click", ()=>{
+        state.hand = hand;
+        document.querySelectorAll(".hand-tab").forEach(b=> b.classList.toggle("active", b.dataset.hand===hand));
+        setPhrase(SONG.phrases.indexOf(p));
+      });
       list.appendChild(chip);
     });
   });
@@ -192,7 +304,7 @@ function initMIDI(){
       document.getElementById("midi-indicator").textContent = "⚠️ No MIDI device found";
       return;
     }
-    inputs.forEach((input, i)=>{
+    inputs.forEach((input)=>{
       const opt = document.createElement("option");
       opt.value = input.id;
       opt.textContent = input.name;
@@ -264,6 +376,7 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("prev-phrase").addEventListener("click", ()=> setPhrase(state.phraseIndex-1));
   document.getElementById("next-phrase").addEventListener("click", ()=> setPhrase(state.phraseIndex+1));
   document.getElementById("replay-phrase").addEventListener("click", ()=> { stepIndex=0; state.activeNotesPlayed.clear(); highlightCurrentStep(); showFeedback("Reset to start of phrase", "good"); });
+  document.getElementById("play-demo").addEventListener("click", playCurrentPhraseDemo);
   document.getElementById("forgiving-velocity").addEventListener("change", (e)=>{ state.forgivingVelocity = e.target.checked; });
   document.getElementById("reset-progress").addEventListener("click", ()=>{
     localStorage.removeItem(STORAGE_KEY);

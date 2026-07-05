@@ -1,11 +1,12 @@
-import shutil, os
 
-# Re-touch each file to force artifact registration
-files = ['index.html', 'style.css', 'song-data.js', 'app.js', 'vercel.json', 'README.md']
+
+import os
+os.makedirs("output", exist_ok=True)
+files = ['index.html', 'style.css', 'song-data.js', 'app.js', 'README.md', 'vercel.json']
 for fname in files:
     src = os.path.join("output", fname)
     with open(src, "r") as f:
         content = f.read()
-    with open(fname, "w") as f:  # write to root so tool definitely picks it up
+    with open(fname, "w") as f:
         f.write(content)
-    print(fname, "rewritten,", len(content), "chars")
+    print(fname, len(content), "chars")

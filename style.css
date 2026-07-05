@@ -116,13 +116,42 @@ header h1{
 #phrase-nav button:hover{border-color:var(--candle);color:var(--candle);}
 #phrase-label{
   font-family:'Cinzel',serif;font-size:0.95rem;letter-spacing:1px;
-  color:var(--candle);min-width:180px;text-align:center;
+  color:var(--candle);min-width:220px;text-align:center;
 }
+
+#playback-controls{
+  display:flex;justify-content:center;align-items:center;gap:14px;
+  margin:6px 0 4px;position:relative;z-index:2;
+}
+.primary-btn{
+  background:linear-gradient(180deg, var(--blood-bright), var(--blood));
+  border:1px solid var(--blood-bright);
+  color:var(--candle-glow);
+  padding:10px 24px;
+  border-radius:3px;
+  cursor:pointer;
+  font-family:'Cinzel',serif;
+  font-size:0.85rem;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  box-shadow:0 0 18px rgba(122,16,32,0.5);
+  transition:.2s;
+}
+.primary-btn:hover{
+  box-shadow:0 0 26px rgba(194,35,54,0.8);
+  transform:translateY(-1px);
+}
+#playback-controls #replay-phrase{
+  background:transparent;border:1px solid var(--ash);color:var(--bone);
+  padding:9px 18px;border-radius:2px;cursor:pointer;
+  font-family:'EB Garamond',serif;font-size:0.88rem;
+}
+#playback-controls #replay-phrase:hover{border-color:var(--candle);color:var(--candle);}
 
 #feedback-banner{
   text-align:center;min-height:30px;font-size:1.15rem;font-weight:600;
   transition:opacity .3s;font-family:'Cinzel',serif;letter-spacing:1px;
-  position:relative;z-index:2;
+  position:relative;z-index:2;margin-top:8px;
 }
 #feedback-banner.good{color:var(--good);text-shadow:0 0 14px rgba(143,191,111,0.5);}
 #feedback-banner.bad{color:var(--bad);text-shadow:0 0 14px rgba(194,35,54,0.5);}
@@ -134,36 +163,41 @@ header h1{
 #keyboard{
   position:relative;
   display:flex;
-  height:190px;
+  height:170px;
   filter:drop-shadow(0 6px 24px rgba(0,0,0,0.6));
 }
 .white-key{
   position:relative;
-  width:42px;height:190px;
+  width:30px;height:170px;
   background:linear-gradient(180deg, var(--bone) 0%, #d8cfba 100%);
   border:1px solid #2a2620;
   border-radius:0 0 5px 5px;
   display:flex;align-items:flex-end;justify-content:center;
   padding-bottom:8px;
   font-family:'EB Garamond',serif;
-  font-size:0.72rem;color:#5a5142;
+  font-size:0.62rem;color:#5a5142;
   transition:background .12s, box-shadow .12s;
 }
 .black-key{
   position:absolute;
-  width:26px;height:118px;
+  width:19px;height:105px;
   background:linear-gradient(180deg, #1a1418 0%, #05040a 100%);
   border:1px solid #000;
   border-radius:0 0 4px 4px;
   z-index:3;
   display:flex;align-items:flex-end;justify-content:center;
   padding-bottom:5px;
-  font-size:0.6rem;color:#a89060;
+  font-size:0.52rem;color:#a89060;
   transition:background .12s, box-shadow .12s;
 }
 .key-target{
   outline:3px solid var(--candle) !important;
   box-shadow:0 0 20px var(--candle-glow) !important;
+}
+.key-demo{
+  background:linear-gradient(180deg, var(--candle-glow), var(--candle)) !important;
+  color:#3a2600 !important;
+  box-shadow:0 0 22px var(--candle-glow) !important;
 }
 .key-correct{
   background:linear-gradient(180deg, var(--good), #5c8f42) !important;
@@ -177,7 +211,7 @@ header h1{
 .key-dim{opacity:.2;}
 
 #progress-panel{
-  max-width:560px;margin:36px auto 0;padding:20px;
+  max-width:640px;margin:36px auto 0;padding:20px;
   background:rgba(15,12,18,0.7);
   border:1px solid rgba(201,162,75,0.3);
   border-radius:4px;
@@ -185,15 +219,19 @@ header h1{
 }
 #progress-panel h2{
   font-family:'Cinzel',serif;font-size:0.95rem;letter-spacing:2px;
-  margin:0 0 14px;color:var(--gold);text-transform:uppercase;
+  margin:0 0 6px;color:var(--gold);text-transform:uppercase;
 }
-#progress-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+.progress-hint{
+  font-size:0.78rem;color:var(--ash);font-style:italic;margin:0 0 14px;
+}
+#progress-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;max-height:220px;overflow-y:auto;}
 .progress-chip{
-  padding:5px 12px;border-radius:2px;font-size:0.75rem;
+  padding:5px 12px;border-radius:2px;font-size:0.72rem;
   background:rgba(107,100,112,0.2);color:var(--ash);
   border:1px solid rgba(107,100,112,0.4);
-  font-style:italic;
+  font-style:italic;cursor:pointer;transition:.15s;
 }
+.progress-chip:hover{border-color:var(--candle);color:var(--candle);}
 .progress-chip.done{
   background:rgba(143,191,111,0.15);color:var(--good);
   border-color:var(--good);font-weight:600;font-style:normal;
