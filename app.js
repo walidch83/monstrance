@@ -483,36 +483,112 @@ function renderProgressPanel(){
 }
 
 // ---------- MIDI ----------
+// Root cause of the old flashing/reverting dropdown bug: the previous code
+// called initMIDI() (or rebuilt the <select> from scratch) every time the
+// browser fired "onstatechange" -- and Chrome fires this event repeatedly
+// / redundantly for the SAME device, sometimes many times per second. Each
+// rebuild wiped the dropdown's options and reset the selection to index 0,
+// which is why: (1) Chrome visibly flashed/froze the open dropdown as it
+// kept getting rebuilt underneath the user's click, (2) Firefox silently
+// reverted the choice back to the first device, and (3) the actually-
+// selected controller never stayed "attached" long enough for its
+// onmidimessage handler to survive, so key presses were never detected.
+//
+// Fix: request MIDI access ONCE. Keep a single persistent list of inputs.
+// On any onstatechange event, only reconcile the OPTIONS list (add/remove
+// devices that actually appeared/disappeared) without ever touching or
+// resetting whichever option the user currently has selected, and never
+// re-attach a device the user didn't choose.
+let midiAccessGlobal = null;
+let midiInputsById = new Map();
+
+function renderMIDIOptions(){
+  const select = document.getElementById("midi-input-select");
+  const previouslySelectedId = select.value;
+
+  select.innerHTML = "";
+  midiInputsById.forEach((input, id)=>{
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = input.name;
+    select.appendChild(opt);
+  });
+
+  // Restore the user's previous choice if that device is still present;
+  // only fall back to the first device if nothing was selected yet or
+  // the previously selected device disconnected.
+  if (previouslySelectedId && midiInputsById.has(previouslySelectedId)){
+    select.value = previouslySelectedId;
+  } else if (midiInputsById.size){
+    select.value = midiInputsById.keys().next().value;
+  }
+}
+
+function attachMIDIInput(input){
+  if (state.midiInput && state.midiInput !== input){
+    state.midiInput.onmidimessage = null;
+  }
+  state.midiInput = input;
+  input.onmidimessage = handleMIDIMessage;
+  document.getElementById("midi-indicator").textContent = "✅ Connected: " + input.name;
+}
+
+function handleMIDIStateChange(){
+  if (!midiAccessGlobal) return;
+  const liveInputs = Array.from(midiAccessGlobal.inputs.values());
+  const liveIds = new Set(liveInputs.map(i=>i.id));
+
+  // Only touch the map/options if the set of devices actually changed --
+  // ignore redundant duplicate events for devices we already know about.
+  const currentIds = new Set(midiInputsById.keys());
+  const sameSet = currentIds.size === liveIds.size && [...currentIds].every(id=>liveIds.has(id));
+  if (sameSet) return;
+
+  midiInputsById = new Map(liveInputs.map(i=>[i.id, i]));
+  renderMIDIOptions();
+
+  if (!midiInputsById.size){
+    document.getElementById("midi-indicator").textContent = "⚠️ No MIDI device found";
+    state.midiInput = null;
+    return;
+  }
+
+  // If the device the user had selected disconnected, fall back to
+  // whatever is now first in the list; otherwise leave their choice alone.
+  if (!state.midiInput || !midiInputsById.has(state.midiInput.id)){
+    const select = document.getElementById("midi-input-select");
+    const fallback = midiInputsById.get(select.value) || midiInputsById.values().next().value;
+    attachMIDIInput(fallback);
+  }
+}
+
 function initMIDI(){
   if (!navigator.requestMIDIAccess){
     document.getElementById("midi-indicator").textContent = "⚠️ Web MIDI not supported in this browser";
     return;
   }
   navigator.requestMIDIAccess().then(access=>{
-    const select = document.getElementById("midi-input-select");
-    select.innerHTML = "";
-    const inputs = Array.from(access.inputs.values());
-    if (!inputs.length){
+    midiAccessGlobal = access;
+    midiInputsById = new Map(Array.from(access.inputs.values()).map(i=>[i.id, i]));
+
+    if (!midiInputsById.size){
       document.getElementById("midi-indicator").textContent = "⚠️ No MIDI device found";
       return;
     }
-    inputs.forEach((input)=>{
-      const opt = document.createElement("option");
-      opt.value = input.id;
-      opt.textContent = input.name;
-      select.appendChild(opt);
-    });
-    function attach(input){
-      state.midiInput = input;
-      input.onmidimessage = handleMIDIMessage;
-      document.getElementById("midi-indicator").textContent = "✅ Connected: " + input.name;
-    }
-    attach(inputs[0]);
+
+    renderMIDIOptions();
+    attachMIDIInput(midiInputsById.values().next().value);
+
+    const select = document.getElementById("midi-input-select");
     select.onchange = ()=>{
-      const chosen = inputs.find(i=>i.id === select.value);
-      if (chosen) attach(chosen);
+      const chosen = midiInputsById.get(select.value);
+      if (chosen) attachMIDIInput(chosen);
     };
-    access.onstatechange = ()=> initMIDI();
+
+    // Reconcile the device list on real hardware changes only -- this
+    // NEVER rebuilds the whole dropdown or re-runs setup from scratch,
+    // so an open menu never flashes and a manual selection never reverts.
+    access.onstatechange = handleMIDIStateChange;
   }).catch(()=>{
     document.getElementById("midi-indicator").textContent = "⚠️ MIDI access denied";
   });
